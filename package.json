@@ -1,0 +1,54 @@
+{
+  "name": "hg-gamm-sim",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint"
+  },
+  "dependencies": {
+    "@aureooms/js-itertools": "^3.4.0",
+    "d3": "^5.7.0",
+    "dagre": "^0.8.4",
+    "dagre-d3": "^0.6.3",
+    "graphlib": "^2.1.7",
+    "vue": "^2.5.21",
+    "vue-mathjax": "0.0.6"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "^3.3.0",
+    "@vue/cli-plugin-eslint": "^3.3.0",
+    "@vue/cli-service": "^3.3.0",
+    "babel-eslint": "^10.0.1",
+    "babel-polyfill": "^6.26.0",
+    "core-js": "^2.6.2",
+    "eslint": "^5.8.0",
+    "eslint-plugin-vue": "^5.0.0",
+    "vue-template-compiler": "^2.5.21"
+  },
+  "eslintConfig": {
+    "root": true,
+    "env": {
+      "node": true
+    },
+    "extends": [
+      "plugin:vue/essential",
+      "eslint:recommended"
+    ],
+    "rules": {},
+    "parserOptions": {
+      "parser": "babel-eslint"
+    }
+  },
+  "postcss": {
+    "plugins": {
+      "autoprefixer": {}
+    }
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not ie <= 8"
+  ]
+}
