@@ -9,13 +9,12 @@
         </ul>
       </div>
     </section>
-    <label>Initial funding: <input v-model.number="funding"></label>
-    <div><vue-mathjax :formula="`$b=${this.mpf(funding)}$`"></vue-mathjax></div>
+    <label>Initial funding: <input v-model.number="fundingInput"></label><button v-on:click="reset">Reset</button>
     <section class="outcomes">
       <div class="outcome-rank" v-for="(outcomeRank, index) in outcomes" :key="`outcomeRank${index}`">
         <ul>
           <li v-for="outcome in outcomeRank" :key="outcome.name">
-            {{ outcome.name }}
+            {{ outcome.name }}: {{ outcome.amountHeld }}
           </li>
         </ul>
       </div>
@@ -36,7 +35,7 @@ const conditions = [
 ]
 
 const outcomes = [
-  [{name: '$', children: []}],
+  [{name: '$', amountHeld: 0, children: []}],
 ]
 
 const outcomesByName = {}
@@ -48,7 +47,7 @@ for (let n = 1; n <= conditions.length; n++) {
   for(const conditionTuple of combinations(conditions, n)) {
     for(const elems of product(conditionTuple)) {
       const outcomeName = elems.join("")
-      const outcome = {name: outcomeName, children: []}
+      const outcome = {name: outcomeName, amountHeld: 0, children: []}
       conditionOutcomes.push(outcome)
       outcomesByName[outcomeName] = outcome
 
@@ -62,6 +61,8 @@ for (let n = 1; n <= conditions.length; n++) {
   }
 }
 
+const defaultFunding = 100
+
 export default {
   components: {
     'vue-mathjax': VueMathjax
@@ -69,13 +70,32 @@ export default {
   name: 'app',
   data() {
     return {
-      funding: null,
+      fundingInput: defaultFunding,
       conditions,
       outcomes,
     };
   },
   props: {
-    mpf: null
+    mpf: null,
+  },
+  methods: {
+    reset() {
+      let { fundingInput, outcomes } = this
+
+      fundingInput = Number(fundingInput)
+      if(fundingInput <= 0 || !Number.isFinite(fundingInput))
+        this.fundingInput = fundingInput = defaultFunding
+
+      for(const outcomeRank of outcomes) {
+        for(const outcome of outcomeRank) {
+          outcome.amountHeld = 0
+        }
+      }
+      outcomes[0][0].amountHeld = fundingInput
+    }
+  },
+  mounted() {
+    this.reset()
   },
 }
 </script>
