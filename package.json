@@ -9,12 +9,7 @@
   },
   "dependencies": {
     "@aureooms/js-itertools": "^3.4.0",
-    "d3": "^5.7.0",
-    "dagre": "^0.8.4",
-    "dagre-d3": "^0.6.3",
-    "graphlib": "^2.1.7",
-    "vue": "^2.5.21",
-    "vue-mathjax": "0.0.6"
+    "vue": "^2.5.21"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "^3.3.0",
