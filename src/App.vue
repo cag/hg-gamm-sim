@@ -52,8 +52,11 @@ const conditions = [
   ['i', 'j', 'k'],
 ]
 
+const conditionIndicesByOutcome = {}
+conditions.forEach((outcomes, i) => outcomes.forEach(outcome => conditionIndicesByOutcome[outcome] = i))
+
 const outcomes = [
-  [{name: '$', amountHeld: 0, multiplicity: numAtomicOutcomes, children: [], parents: []}],
+  [{name: '$', amountHeld: 0, multiplicity: numAtomicOutcomes, arrowsOut: [], arrowsIn: []}],
 ]
 
 const numAtomicOutcomes = conditions.reduce((acc, outcomes) => acc * outcomes.length, 1)
@@ -69,17 +72,25 @@ for (let n = 1; n <= conditions.length; n++) {
     const multiplicity = conditionTuple.reduce((acc, outcomes) => acc / outcomes.length, numAtomicOutcomes)
     for(const elems of product(conditionTuple)) {
       const outcomeName = elems.join("")
-      const outcome = {name: outcomeName, amountHeld: 0, multiplicity, children: []}
+      const outcome = {name: outcomeName, amountHeld: 0, multiplicity, arrowsOut: []}
       conditionOutcomes.push(outcome)
       outcomeNames.push(outcomeName)
       outcomesByName[outcomeName] = outcome
 
-      const parentOutcomes = n === 1 ? [outcomesByName['$']] :
-        Array.from(combinations(elems, n - 1))
-          .map(parentElems => outcomesByName[parentElems.join("")])
+      const arrows = n === 1 ? [{
+        parent: outcomesByName['$'],
+        child: outcome,
+        conditionIndex: conditionIndicesByOutcome[outcomeName],
+      }] :
+        Array.from(outcomeName)
+          .map((slot, i) => ({
+            parent: outcomesByName[outcomeName.slice(0, i) + outcomeName.slice(i + 1)],
+            child: outcome,
+            conditionIndex: conditionIndicesByOutcome[outcomeName[i]],
+          }))
 
-      outcome.parents = parentOutcomes
-      parentOutcomes.forEach(parent => parent.children.push(outcome))
+      outcome.arrowsIn = arrows
+      arrows.forEach(desc => desc.parent.arrowsOut.push(desc))
     }
   }
 }
@@ -118,7 +129,7 @@ export default {
       for(
         let outcomes = [tradeOutcome];
         outcomes.length > 0;
-        outcomes = outcomes.map(o => o.parents).flat()
+        outcomes = outcomes.map(o => o.arrowsIn.map(a => a.parent)).flat()
       ) {
         for(const outcome of outcomes) {
           amountHeld += outcome.amountHeld
