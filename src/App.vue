@@ -22,7 +22,7 @@
       <div class="outcome-rank" v-for="(outcomeRank, index) in outcomes" :key="`outcomeRank${index}`">
         <ul>
           <li v-for="outcome in outcomeRank" :key="outcome.name">
-            {{ outcome.name }}: {{ outcome.amountHeld }}
+            {{ outcome.name }}: {{ outcome.amountHeld }} :: {{ outcome.mysteryQuantity }}
           </li>
         </ul>
       </div>
@@ -35,7 +35,7 @@
       <div>
         <label>Amount: <input v-model.number="tradeAmount"></label>
       </div>
-      <div>Trade cost: {{ tradeCost }}</div>
+      <div>Trade cost (naive): {{ tradeCostNaive }}</div>
       <button type="submit">Execute trade</button>
     </form>
   </div>
@@ -56,23 +56,23 @@ const conditionIndicesByOutcome = {}
 conditions.forEach((outcomes, i) => outcomes.forEach(outcome => conditionIndicesByOutcome[outcome] = i))
 
 const outcomes = [
-  [{name: '$', amountHeld: 0, multiplicity: numAtomicOutcomes, arrowsOut: [], arrowsIn: []}],
+  [{name: '$', amountHeld: 0, mysteryQuantity: 0, defaultOdds: 1, arrowsOut: [], arrowsIn: []}],
 ]
 
 const numAtomicOutcomes = conditions.reduce((acc, outcomes) => acc * outcomes.length, 1)
 
 const outcomeNames = []
 const outcomesByName = {}
-outcomesByName[outcomes[0][0].name] = outcomes[0][0]
+outcomesByName['$'] = outcomes[0][0]
 
 for (let n = 1; n <= conditions.length; n++) {
   const conditionOutcomes = []
   outcomes.push(conditionOutcomes)
   for(const conditionTuple of combinations(conditions, n)) {
-    const multiplicity = conditionTuple.reduce((acc, outcomes) => acc / outcomes.length, numAtomicOutcomes)
+    const defaultOdds = 1 / conditionTuple.reduce((acc, outcomes) => acc * outcomes.length, 1)
     for(const elems of product(conditionTuple)) {
       const outcomeName = elems.join("")
-      const outcome = {name: outcomeName, amountHeld: 0, multiplicity, arrowsOut: []}
+      const outcome = {name: outcomeName, amountHeld: 0, mysteryQuantity: 0, defaultOdds, arrowsOut: []}
       conditionOutcomes.push(outcome)
       outcomeNames.push(outcomeName)
       outcomesByName[outcomeName] = outcome
@@ -111,11 +111,10 @@ export default {
     };
   },
   computed: {
-    tradeCost() {
+    tradeCostNaive() {
       const { tradeOutcomeName } = this
       if(!outcomesByName.hasOwnProperty(tradeOutcomeName) || tradeOutcomeName === '$')
         return null
-      const tradeOutcome = outcomesByName[tradeOutcomeName]
 
       const tradeAmount = Number(this.tradeAmount)
       if(tradeAmount === 0 || !Number.isFinite(tradeAmount))
@@ -125,18 +124,36 @@ export default {
       if(b === 0 || !Number.isFinite(b))
         return null
 
-      let amountHeld = 0
-      for(
-        let outcomes = [tradeOutcome];
-        outcomes.length > 0;
-        outcomes = outcomes.map(o => o.arrowsIn.map(a => a.parent)).flat()
-      ) {
-        for(const outcome of outcomes) {
-          amountHeld += outcome.amountHeld
+      const atomicSlotsDescriptor = []
+      for(let i = 0; i < conditions.length; i++) {
+        let found = false
+        for(const elem of tradeOutcomeName) {
+          const j = conditionIndicesByOutcome[elem]
+          if(i === j) {
+            atomicSlotsDescriptor.push([elem])
+            found = true
+            break
+          }
         }
+        if(!found)
+          atomicSlotsDescriptor.push(conditions[i])
       }
 
-      return b * Math.log(1 + tradeOutcome.multiplicity * Math.exp(-amountHeld / b) * (Math.exp(tradeAmount / b) - 1))
+      let expSum = 0
+      for(const elems of product(atomicSlotsDescriptor)) {
+        const outcomeName = elems.join('')
+        console.log(outcomeName)
+        let amountHeld = outcomesByName['$'].amountHeld
+        for(let n = 1; n <= outcomeName.length; n++) {
+          for(const elems of combinations(outcomeName, n)) {
+            const outcome = outcomesByName[elems.join('')]
+            amountHeld += outcome.amountHeld
+          }
+        }
+        expSum += Math.exp(-amountHeld / b)
+      }
+
+      return b * Math.log(1 + expSum * (Math.exp(tradeAmount / b) - 1))
     }
   },
   props: {
@@ -167,9 +184,9 @@ export default {
       if(tradeAmount === 0 || !Number.isFinite(tradeAmount))
         throw new Error(`${tradeAmount} is not a valid trade amount`)
 
-      const { tradeCost } = this
+      const { tradeCostNaive } = this
 
-      outcomesByName['$'].amountHeld += tradeCost
+      outcomesByName['$'].amountHeld += tradeCostNaive
       outcomesByName[tradeOutcomeName].amountHeld -= tradeAmount
     },
   },
