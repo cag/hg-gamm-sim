@@ -22,7 +22,12 @@
       <div class="outcome-rank" v-for="(outcomeRank, index) in outcomes" :key="`outcomeRank${index}`">
         <ul>
           <li v-for="outcome in outcomeRank" :key="outcome.name">
-            {{ outcome.name }}: {{ outcome.amountHeld }} :: {{ outcome.mysteryQuantity }}
+            <p>{{ outcome.name }}: {{ formatQuantity(outcome.amountHeld) }}</p>
+            <ul>
+              <li v-for="(quantity, index) in computeQuantity(outcome)" :key="`quantity${index}`">
+                {{ quantity }}
+              </li>
+            </ul>
           </li>
         </ul>
       </div>
@@ -111,6 +116,55 @@ export default {
     };
   },
   computed: {
+    outcomeOddsByName() {
+      const ret = {}
+
+      const b = Number(this.b)
+      if(b === 0 || !Number.isFinite(b))
+        return ret
+
+      for(const elems of product(conditions)) {
+        const outcomeName = elems.join('')
+
+        let amountHeld = outcomesByName['$'].amountHeld
+        for(let n = 1; n <= outcomeName.length; n++) {
+          for(const elems of combinations(outcomeName, n)) {
+            const outcome = outcomesByName[elems.join('')]
+            amountHeld += outcome.amountHeld
+          }
+        }
+        ret[outcomeName] = Math.exp(-amountHeld / b)
+      }
+
+      for(let i = outcomes.length - 2; i >= 0; i--) {
+        const outcomeRank = outcomes[i]
+        for(const outcome of outcomeRank) {
+          ret[outcome.name] = outcome.arrowsOut
+
+          const atomicSlotsDescriptor = []
+          for(let j = 0; j < conditions.length; j++) {
+            let found = false
+            for(const elem of outcome.name) {
+              const k = conditionIndicesByOutcome[elem]
+              if(j === k) {
+                atomicSlotsDescriptor.push([elem])
+                found = true
+                break
+              }
+            }
+            if(!found)
+              atomicSlotsDescriptor.push(conditions[j])
+          }
+
+          ret[outcome.name] = 0
+          for(const elems of product(atomicSlotsDescriptor)) {
+            ret[outcome.name] += ret[elems.join('')]
+          }
+        }
+      }
+
+      return ret
+    },
     tradeCostNaive() {
       const { tradeOutcomeName } = this
       if(!outcomesByName.hasOwnProperty(tradeOutcomeName) || tradeOutcomeName === '$')
@@ -124,37 +178,8 @@ export default {
       if(b === 0 || !Number.isFinite(b))
         return null
 
-      const atomicSlotsDescriptor = []
-      for(let i = 0; i < conditions.length; i++) {
-        let found = false
-        for(const elem of tradeOutcomeName) {
-          const j = conditionIndicesByOutcome[elem]
-          if(i === j) {
-            atomicSlotsDescriptor.push([elem])
-            found = true
-            break
-          }
-        }
-        if(!found)
-          atomicSlotsDescriptor.push(conditions[i])
-      }
-
-      let expSum = 0
-      for(const elems of product(atomicSlotsDescriptor)) {
-        const outcomeName = elems.join('')
-        console.log(outcomeName)
-        let amountHeld = outcomesByName['$'].amountHeld
-        for(let n = 1; n <= outcomeName.length; n++) {
-          for(const elems of combinations(outcomeName, n)) {
-            const outcome = outcomesByName[elems.join('')]
-            amountHeld += outcome.amountHeld
-          }
-        }
-        expSum += Math.exp(-amountHeld / b)
-      }
-
-      return b * Math.log(1 + expSum * (Math.exp(tradeAmount / b) - 1))
-    }
+      return b * Math.log1p(this.outcomeOddsByName[tradeOutcomeName] * (Math.exp(tradeAmount / b) - 1))
+    },
   },
   props: {
     mpf: null,
@@ -184,10 +209,41 @@ export default {
       if(tradeAmount === 0 || !Number.isFinite(tradeAmount))
         throw new Error(`${tradeAmount} is not a valid trade amount`)
 
-      const { tradeCostNaive } = this
+      const { tradeCostNaive, b } = this
 
       outcomesByName['$'].amountHeld += tradeCostNaive
+      outcomesByName['$'].mysteryQuantity = (1 + outcomesByName['$'].mysteryQuantity) * (Math.exp(-tradeCostNaive / b)) - 1
+
       outcomesByName[tradeOutcomeName].amountHeld -= tradeAmount
+      outcomesByName[tradeOutcomeName].mysteryQuantity = (1 + outcomesByName[tradeOutcomeName].mysteryQuantity) * (Math.exp(tradeAmount / b)) - 1
+    },
+
+    formatQuantity(q) {
+      return q.toFixed(4).replace(/\.?0*$/, '')
+    },
+
+    computeQuantity(outcome) {
+      // const ancestors = [outcomesByName['$'], ...(outcome.name === '$' ? [] : [...Array(outcome.name.length).keys()].map(i => Array.from(combinations(outcome.name, i + 1))).flat().map(elems => outcomesByName[elems.join('')]))]
+      return [].concat(
+        // [`? = ${outcome.mysteryQuantity}`],
+        // [`prod(1 + ? for all ancestors) = ${ancestors.reduce((acc, anc) => acc * (1 + anc.mysteryQuantity), 1)}`],
+        [`P(${outcome.name}) = ${this.formatQuantity(this.outcomeOddsByName[outcome.name])}`],
+        // outcome.arrowsIn.map(a => `P(${a.parent.name} -> ${outcome.name}) = ${
+        //   this.formatQuantity(1 - this.outcomeOddsByName[a.parent.name] + this.outcomeOddsByName[outcome.name])
+        // }`),
+        // outcome.arrowsIn.map(a => {
+        //   const parentElems = Array.from(a.parent.name)
+        //   const extElems = Array.from(outcome.name).filter(e => !parentElems.includes(e))
+        //   const extOutcome = outcomesByName[extElems.join('')]
+        //   return `P(${extOutcome.name}|${a.parent.name}) = ${this.formatQuantity(this.outcomeOddsByName[outcome.name] / this.outcomeOddsByName[a.parent.name])}`
+        // }),
+        outcome.arrowsIn.map(a => {
+          const parentElems = Array.from(a.parent.name)
+          const extElems = Array.from(outcome.name).filter(e => !parentElems.includes(e))
+          const extOutcome = outcomesByName[extElems.join('')]
+          return `P(${a.parent.name}|${extOutcome.name}) - P(${outcome.name}) = ${this.formatQuantity(this.outcomeOddsByName[outcome.name] / this.outcomeOddsByName[extOutcome.name] - this.outcomeOddsByName[outcome.name])}`
+        }),
+      )
     },
   },
   mounted() {
