@@ -211,15 +211,62 @@ export default {
 
       const { tradeCostNaive, b } = this
 
-      outcomesByName['$'].amountHeld += tradeCostNaive
-      outcomesByName['$'].mysteryQuantity = (1 + outcomesByName['$'].mysteryQuantity) * (Math.exp(-tradeCostNaive / b)) - 1
+      const tradeConditionIndices = Array.from(tradeOutcomeName).map(elem => conditionIndicesByOutcome[elem])
+      if(tradeCostNaive > 0 && tradeAmount > 0) {
+        outcomesByName['$'].amountHeld += tradeCostNaive
+        outcomesByName[tradeOutcomeName].amountHeld -= tradeAmount
+        for(let n = tradeOutcomeName.length - 1; outcomesByName[tradeOutcomeName].amountHeld < 0 && n >= 0; n--) {
+          for(const elems of combinations(tradeOutcomeName, n)) {
+            const ancestor = outcomesByName[elems.join('') || '$']
+            const splitAmount = Math.min(ancestor.amountHeld, -outcomesByName[tradeOutcomeName].amountHeld)
+            if(splitAmount > 0) {
+              const ancestorConditionIndices = elems.map(elem => conditionIndicesByOutcome[elem])
+              let parent = ancestor
+              let conditionIndicesLeft = tradeConditionIndices.map((i, j) => [i, tradeOutcomeName[j]]).filter(([i, slot]) => !ancestorConditionIndices.includes(i))
 
-      outcomesByName[tradeOutcomeName].amountHeld -= tradeAmount
+              for(const [nextIndex, newSlot] of conditionIndicesLeft) {
+                parent.amountHeld -= splitAmount
+                // console.log('lowering', parent.name, 'by', splitAmount)
+                const splitTargets = parent.arrowsOut.filter(a => a.conditionIndex === nextIndex).map(a => a.child)
+
+                let newParent = null
+                splitTargets.forEach(target => {
+                  if(target.name.indexOf(newSlot) >= 0) {
+                    if(newParent != null)
+                      throw new Error(`double find new parent in splitting loop ${newParent.name} and ${target.name}`)
+                    newParent = target
+                  }
+
+                  target.amountHeld += splitAmount
+                  // console.log('raising', target.name , 'by', splitAmount)
+                })
+
+                if(!newParent)
+                  throw new Error(`could not find new parent from ${parent.name} going towards ${tradeOutcomeName}`)
+
+                parent = newParent
+              }
+            }
+
+            if(outcomesByName[tradeOutcomeName].amountHeld >= 0)
+              break
+          }
+        }
+      } else if(tradeCostNaive < 0 && tradeAmount < 0) {
+        outcomesByName[tradeOutcomeName].amountHeld -= tradeAmount
+        outcomesByName['$'].amountHeld += tradeCostNaive
+      } else {
+        throw new Error(`got mismatching cost ${tradeCostNaive} from trying to trade ${tradeAmount} ${tradeOutcomeName}`)
+      }
+
+      outcomesByName['$'].mysteryQuantity = (1 + outcomesByName['$'].mysteryQuantity) * (Math.exp(-tradeCostNaive / b)) - 1
       outcomesByName[tradeOutcomeName].mysteryQuantity = (1 + outcomesByName[tradeOutcomeName].mysteryQuantity) * (Math.exp(tradeAmount / b)) - 1
     },
 
     formatQuantity(q) {
-      return q.toFixed(4).replace(/\.?0*$/, '')
+      if(Number.isFinite(q))
+        return q.toFixed(4).replace(/\.?0*$/, '')
+      return null
     },
 
     computeQuantity(outcome) {
