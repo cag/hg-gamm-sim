@@ -17,6 +17,17 @@
 
     <p><em>b</em> = {{ b }}</p>
 
+    <form @submit.prevent="executeTrade">
+      <div><label>Outcome: <select v-model="tradeOutcomeName">
+        <option v-for="outcomeName in outcomeNames" :key="outcomeName">{{ outcomeName }}</option>
+      </select></label></div>
+      <div>
+        <label>Amount: <input v-model.number="tradeAmount"></label>
+      </div>
+      <div>Trade cost (naive): {{ tradeCostNaive }}</div>
+      <button type="submit">Execute trade</button>
+    </form>
+
     <div>Holdings:</div>
     <section class="outcomes">
       <div class="outcome-rank" v-for="(outcomeRank, index) in outcomes" :key="`outcomeRank${index}`">
@@ -32,17 +43,6 @@
         </ul>
       </div>
     </section>
-
-    <form @submit.prevent="executeTrade">
-      <div><label>Outcome: <select v-model="tradeOutcomeName">
-        <option v-for="outcomeName in outcomeNames" :key="outcomeName">{{ outcomeName }}</option>
-      </select></label></div>
-      <div>
-        <label>Amount: <input v-model.number="tradeAmount"></label>
-      </div>
-      <div>Trade cost (naive): {{ tradeCostNaive }}</div>
-      <button type="submit">Execute trade</button>
-    </form>
   </div>
 </template>
 
@@ -63,7 +63,7 @@ conditions.forEach((outcomes, i) => outcomes.forEach(outcome => conditionIndices
 const numAtomicOutcomes = conditions.reduce((acc, outcomes) => acc * outcomes.length, 1)
 
 const outcomes = [
-  [{name: '$', amountHeld: 0, mysteryQuantity: numAtomicOutcomes, defaultOdds: 1, multiplicity: numAtomicOutcomes, arrowsOut: [], arrowsIn: []}],
+  [{name: '$', amountHeld: 0, mysteryQuantity: 1, defaultOdds: 1, multiplicity: numAtomicOutcomes, arrowsOut: [], arrowsIn: []}],
 ]
 
 const outcomeNames = []
@@ -78,7 +78,7 @@ for (let n = 1; n <= conditions.length; n++) {
     const multiplicity = defaultOdds * numAtomicOutcomes
     for(const elems of product(conditionTuple)) {
       const outcomeName = elems.join("")
-      const outcome = {name: outcomeName, amountHeld: 0, mysteryQuantity: multiplicity, defaultOdds, multiplicity, arrowsOut: []}
+      const outcome = {name: outcomeName, amountHeld: 0, mysteryQuantity: 1 / conditionTuple[conditionTuple.length - 1].length, defaultOdds, multiplicity, arrowsOut: []}
       conditionOutcomes.push(outcome)
       outcomeNames.push(outcomeName)
       outcomesByName[outcomeName] = outcome
@@ -195,6 +195,7 @@ export default {
       for(const outcomeRank of outcomes) {
         for(const outcome of outcomeRank) {
           outcome.amountHeld = 0
+          outcome.mysteryQuantity = 1 / (outcome.name === '$' ? 1 : conditions[conditionIndicesByOutcome[outcome.name[outcome.name.length - 1]]].length)
         }
       }
       outcomes[0][0].amountHeld = fundingInput
@@ -212,7 +213,7 @@ export default {
         throw new Error(`${tradeAmount} is not a valid trade amount`)
 
       const { tradeCostNaive, b } = this
-      // const tradeOutcomeOddsBefore = this.outcomeOddsByName[tradeOutcomeName]
+      const tradeOutcomeOddsBefore = this.outcomeOddsByName[tradeOutcomeName]
 
       const tradeConditionIndices = Array.from(tradeOutcomeName).map(elem => conditionIndicesByOutcome[elem])
       if(tradeCostNaive > 0 && tradeAmount > 0) {
@@ -262,16 +263,41 @@ export default {
         throw new Error(`got mismatching cost ${tradeCostNaive} from trying to trade ${tradeAmount} ${tradeOutcomeName}`)
       }
 
-      // const tradeOutcomeOddsAfter = this.outcomeOddsByName[tradeOutcomeName]
+      const tradeOutcomeOddsAfter = this.outcomeOddsByName[tradeOutcomeName]
 
       const tradeAncestors = [outcomesByName['$'], ...(tradeOutcomeName === '$' ? [] : [...Array(tradeOutcomeName.length).keys()].map(i => Array.from(combinations(tradeOutcomeName, i + 1))).flat().map(elems => outcomesByName[elems.join('')]))]
 
       // // outcomesByName['$'].mysteryQuantity = (1 + outcomesByName['$'].mysteryQuantity) * (Math.exp(-tradeCostNaive / b)) - 1
       // const mysteryDelta = tradeOutcomeOddsBefore * (Math.exp((tradeAmount - tradeCostNaive) / b) - 1)
       // console.log(mysteryDelta, 'vs', tradeOutcomeOddsAfter - tradeOutcomeOddsBefore)
-      const mysteryDelta = tradeOutcome.mysteryQuantity * (Math.exp(tradeAmount / b) - 1)
-      for(const ta of tradeAncestors)
-        ta.mysteryQuantity += mysteryDelta
+      // const mysteryDelta = tradeOutcome.mysteryQuantity * (Math.exp(tradeAmount / b) - 1)
+
+      // outcomesByName['$'].mysteryQuantity += mysteryDelta
+      const canonicalPathOdds = [1]
+      for(let n = 1; n <= tradeOutcomeName.length; n++) {
+        const outcome = outcomesByName[tradeOutcomeName.slice(0, n)]
+        canonicalPathOdds.push(canonicalPathOdds[n - 1] * outcome.mysteryQuantity)
+      }
+      // console.log('got canonical path odds', canonicalPathOdds)
+
+      const mysteryDelta = canonicalPathOdds[tradeOutcomeName.length] * (Math.exp(tradeAmount / b) - 1)
+      const canonicalPathAugmentedOdds = canonicalPathOdds.map(o => o + mysteryDelta)
+      // console.log('delta', mysteryDelta)
+      // console.log('canonicalPathAugmentedOdds', mysteryDelta)
+
+      for(let n = 1; n <= tradeOutcomeName.length; n++) {
+        const conditionIndex = conditionIndicesByOutcome[tradeOutcomeName[n - 1]]
+        for(const elem of conditions[conditionIndex]) {
+          const outcome = outcomesByName[tradeOutcomeName.slice(0, n - 1) + elem]
+          const oldMystery = outcome.mysteryQuantity
+          outcome.mysteryQuantity = (elem === tradeOutcomeName[n - 1] ? canonicalPathAugmentedOdds[n] : canonicalPathOdds[n - 1] * outcome.mysteryQuantity) / canonicalPathAugmentedOdds[n - 1]
+
+          // console.log(outcome.name, ':', oldMystery, '->', outcome.mysteryQuantity)
+        }
+      }
+
+      // for(const ta of tradeAncestors)
+      //   ta.mysteryQuantity += mysteryDelta
     },
 
     formatQuantity(q) {
@@ -284,12 +310,19 @@ export default {
       const { b } = this
       const ancestors = [outcomesByName['$'], ...(outcome.name === '$' ? [] : [...Array(outcome.name.length).keys()].map(i => Array.from(combinations(outcome.name, i + 1))).flat().map(elems => outcomesByName[elems.join('')]))]
       return [].concat(
-        // [`? = ${this.formatQuantity(outcome.mysteryQuantity)}`],
+        [`? = ${this.formatQuantity(outcome.mysteryQuantity)}`],
         // [`?/?[$] = ${this.formatQuantity(outcome.mysteryQuantity / outcomesByName['$'].mysteryQuantity)}`],
+        outcome.name === '$' ? [] : [`prod(? for canonical path) = ${this.formatQuantity(Array.from(outcome.name).reduce(([parentName, q], newElem) => [parentName + newElem, q * outcomesByName[parentName + newElem].mysteryQuantity], ['', outcomesByName['$'].mysteryQuantity])[1])}`],
         // [`exp(-sum(holdings for all ancestors)/b) * multiplicity = ${Math.exp(-ancestors.reduce((acc, anc) => acc + anc.amountHeld, 0) / b) * outcome.multiplicity}`],
         // [`prod(1 + ? for all ancestors) = ${ancestors.reduce((acc, anc) => acc * (1 + anc.mysteryQuantity), 1)}`],
         // [`prod(exp(-holdings/b for all ancestors) = ${ancestors.reduce((acc, anc) => acc * Math.exp(-anc.amountHeld / b), 1)}`],
+        // outcome.name.length < 2 ? [] : [`${Array.from(outcome.name).map(elem => `P(${elem})`).join('*')} = ${
+        //   this.formatQuantity(Array.from(outcome.name).map(elem => this.outcomeOddsByName[elem]).reduce((a, b) => a * b, 1))
+        // }`],
         [`P(${outcome.name}) = ${this.formatQuantity(this.outcomeOddsByName[outcome.name])}`],
+        // outcome.name.length < 2 ? [] : [`P(${outcome.name}) - ${Array.from(outcome.name).map(elem => `P(${elem})`).join('*')} = ${
+        //   this.formatQuantity(this.outcomeOddsByName[outcome.name] - Array.from(outcome.name).map(elem => this.outcomeOddsByName[elem]).reduce((a, b) => a * b, 1))
+        // }`],
         outcome.name.length < 2 ? [] : [`P(${outcome.name.slice(-1)}|${outcome.name.slice(0, -1)}) = ${
           this.formatQuantity(this.outcomeOddsByName[outcome.name] / this.outcomeOddsByName[outcome.name.slice(0, -1)])
         }`]
