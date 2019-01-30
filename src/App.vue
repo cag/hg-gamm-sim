@@ -309,6 +309,21 @@ export default {
     computeQuantity(outcome) {
       const { b } = this
       const ancestors = [outcomesByName['$'], ...(outcome.name === '$' ? [] : [...Array(outcome.name.length).keys()].map(i => Array.from(combinations(outcome.name, i + 1))).flat().map(elems => outcomesByName[elems.join('')]))]
+
+      // const recursiveThingName = (o) => {
+      //   if(o.name.length < 2)
+      //     return `P(${o.name})`
+
+      //   return `P(${o.name})/(${o.arrowsIn.map(a => `(${recursiveThingName(a.parent)})`).join('*')})`
+      // }
+
+      // const recursiveThing = (o) => {
+      //   if(o.name.length < 2)
+      //     return this.outcomeOddsByName[o.name]
+
+      //   return this.outcomeOddsByName[o.name] / o.arrowsIn.reduce((acc, arrow) => acc * recursiveThing(arrow.parent), 1)
+      // }
+
       return [].concat(
         [`? = ${this.formatQuantity(outcome.mysteryQuantity)}`],
         // [`?/?[$] = ${this.formatQuantity(outcome.mysteryQuantity / outcomesByName['$'].mysteryQuantity)}`],
@@ -320,12 +335,15 @@ export default {
         //   this.formatQuantity(Array.from(outcome.name).map(elem => this.outcomeOddsByName[elem]).reduce((a, b) => a * b, 1))
         // }`],
         [`P(${outcome.name}) = ${this.formatQuantity(this.outcomeOddsByName[outcome.name])}`],
+        [`${[...Array(outcome.name.length).keys()].map(i => Array.from(combinations(outcome.name, i + 1)).map(elems => `P(${elems.join('')})`).join('*')).reduce((acc, num) => `${num}/(${acc})`)} = ${this.formatQuantity([...Array(outcome.name.length).keys()].map(i => Array.from(combinations(outcome.name, i + 1)).map(elems => this.outcomeOddsByName[elems.join('')]).reduce((a, b) => a * b, 1)).reduce((acc, num) => num / acc))}`],
+        // outcome.name.length < 2 ? [] : [`${recursiveThingName(outcome)} = ${this.formatQuantity(recursiveThing(outcome))}`],
+        // outcome.name.length < 2 ? [] : [`P(${outcome.name})/(${outcome.arrowsIn.map(a => `P(${a.parent.name})`).join('*')})^(1/${outcome.name.length - 1}) = ${this.formatQuantity(this.outcomeOddsByName[outcome.name] / Math.pow(outcome.arrowsIn.reduce((acc, arrow) => acc * this.outcomeOddsByName[arrow.parent.name], 1), 1 / (outcome.name.length - 1)))}`],
         // outcome.name.length < 2 ? [] : [`P(${outcome.name}) - ${Array.from(outcome.name).map(elem => `P(${elem})`).join('*')} = ${
         //   this.formatQuantity(this.outcomeOddsByName[outcome.name] - Array.from(outcome.name).map(elem => this.outcomeOddsByName[elem]).reduce((a, b) => a * b, 1))
         // }`],
-        outcome.name.length < 2 ? [] : [`P(${outcome.name.slice(-1)}|${outcome.name.slice(0, -1)}) = ${
-          this.formatQuantity(this.outcomeOddsByName[outcome.name] / this.outcomeOddsByName[outcome.name.slice(0, -1)])
-        }`]
+        // outcome.name.length < 2 ? [] : [`P(${outcome.name.slice(-1)}|${outcome.name.slice(0, -1)}) = ${
+        //   this.formatQuantity(this.outcomeOddsByName[outcome.name] / this.outcomeOddsByName[outcome.name.slice(0, -1)])
+        // }`]
         // outcome.arrowsIn.map(a => `P(${a.parent.name} -> ${outcome.name}) = ${
         //   this.formatQuantity(1 - this.outcomeOddsByName[a.parent.name] + this.outcomeOddsByName[outcome.name])
         // }`),
