@@ -62,8 +62,22 @@ conditions.forEach((outcomes, i) => outcomes.forEach(outcome => conditionIndices
 
 const numAtomicOutcomes = conditions.reduce((acc, outcomes) => acc * outcomes.length, 1)
 
+let tradeNonce = 0
+
 const outcomes = [
-  [{name: '$', amountHeld: 0, lastRecordedOdds: 1, lastParentsRecordedOdds: [], defaultOdds: 1, multiplicity: numAtomicOutcomes, arrowsOut: [], arrowsIn: []}],
+  [{
+    name: '$',
+    amountHeld: 0,
+    lastRecordedOdds: 1,
+    lastParentsRecordedOdds: [],
+    defaultOdds: 1,
+    multiplicity: numAtomicOutcomes,
+    lastCostLevelSumComponent: numAtomicOutcomes,
+    lastParentsCostLevelSumComponents: [],
+    lastTradeNonce: tradeNonce,
+    arrowsOut: [],
+    arrowsIn: []
+  }],
 ]
 
 const outcomeNames = []
@@ -78,7 +92,15 @@ for (let n = 1; n <= conditions.length; n++) {
     const multiplicity = defaultOdds * numAtomicOutcomes
     for(const elems of product(conditionTuple)) {
       const outcomeName = elems.join("")
-      const outcome = {name: outcomeName, amountHeld: 0, lastRecordedOdds: defaultOdds, defaultOdds, multiplicity, arrowsOut: []}
+      const outcome = {
+        name: outcomeName,
+        amountHeld: 0,
+        lastRecordedOdds: defaultOdds,
+        defaultOdds,
+        multiplicity,
+        lastCostLevelSumComponent: multiplicity,
+        arrowsOut: [],
+      }
       conditionOutcomes.push(outcome)
       outcomeNames.push(outcomeName)
       outcomesByName[outcomeName] = outcome
@@ -97,6 +119,8 @@ for (let n = 1; n <= conditions.length; n++) {
 
       outcome.arrowsIn = arrows
       outcome.lastParentsRecordedOdds = outcome.arrowsIn.map(arrow => [arrow.parent.name, arrow.parent.defaultOdds])
+      outcome.lastParentsCostLevelSumComponents = outcome.arrowsIn.map(arrow => [arrow.parent.name, arrow.parent.lastCostLevelSumComponent])
+      outcome.lastTradeNonce = tradeNonce
       arrows.forEach(desc => desc.parent.arrowsOut.push(desc))
     }
   }
@@ -192,12 +216,17 @@ export default {
       if(fundingInput <= 0 || !Number.isFinite(fundingInput))
         this.fundingInput = fundingInput = defaultFunding
 
+      tradeNonce++
+
       const { outcomes } = this
       for(const outcomeRank of outcomes) {
         for(const outcome of outcomeRank) {
           outcome.amountHeld = 0
           outcome.lastRecordedOdds = outcome.defaultOdds
           outcome.lastParentsRecordedOdds = outcome.arrowsIn.map(arrow => [arrow.parent.name, arrow.parent.defaultOdds])
+          outcome.lastCostLevelSumComponent = outcome.multiplicity
+          outcome.lastParentsCostLevelSumComponents = outcome.arrowsIn.map(arrow => [arrow.parent.name, arrow.parent.multiplicity])
+          outcome.lastTradeNonce = tradeNonce
         }
       }
       outcomes[0][0].amountHeld = fundingInput
@@ -265,26 +294,66 @@ export default {
         throw new Error(`got mismatching cost ${tradeCostNaive} from trying to trade ${tradeAmount} ${tradeOutcomeName}`)
       }
 
+      tradeNonce++
+
       // normalize
       const tradeConditions = tradeConditionIndices.map(i => conditions[i])
-      for(let n = 1; n <= tradeConditions.length; n++) {
-        for(const conditionTuple of combinations(tradeConditions, n)) {
-          for(const elems of product(conditionTuple)) {
-            const outcome = outcomesByName[elems.join('')]
-            outcome.lastParentsRecordedOdds.forEach(info => {
-              const [parentName, parentLastOdds] = info
-              const parentOutcome = outcomesByName[parentName]
-              // console.log('normalizing', parentName, 'from', outcome.lastRecordedOdds, 'to', outcome.lastRecordedOdds * parentOutcome.lastRecordedOdds / parentLastOdds)
-              outcome.lastRecordedOdds = outcome.lastRecordedOdds * parentOutcome.lastRecordedOdds / parentLastOdds
-              info[1] = parentOutcome.lastRecordedOdds
-            })
+      for(let nonce = tradeOutcome.lastTradeNonce + 1; nonce <= tradeNonce; nonce++) {
+        outcomesByName['$'].lastTradeNonce = nonce
+        // for(let n = 1; n <= tradeConditions.length; n++) {
+        for(let n = tradeConditions.length; n >= 1; n--) {
+          for(const conditionTuple of combinations(tradeConditions, n)) {
+            for(const elems of product(conditionTuple)) {
+              const outcome = outcomesByName[elems.join('')]
+              outcome.lastParentsRecordedOdds.forEach(info => {
+                const [parentName, parentLastOdds] = info
+                const parentOutcome = outcomesByName[parentName]
+                // console.log('normalizing', parentName, 'from', outcome.lastRecordedOdds, 'to', outcome.lastRecordedOdds * parentOutcome.lastRecordedOdds / parentLastOdds)
+                outcome.lastRecordedOdds = outcome.lastRecordedOdds * parentOutcome.lastRecordedOdds / parentLastOdds
+                info[1] = parentOutcome.lastRecordedOdds
+              })
+
+              let foundParentWithNonce = false
+              // outcome.lastParentsCostLevelSumComponents.forEach(info => {
+              for(const info of outcome.lastParentsCostLevelSumComponents) {
+                const [parentName, parentLastComponent] = info
+                const parentOutcome = outcomesByName[parentName]
+                if(!foundParentWithNonce && parentOutcome.lastTradeNonce === nonce) {
+                  outcome.lastCostLevelSumComponent = outcome.lastCostLevelSumComponent * parentOutcome.lastCostLevelSumComponent / parentLastComponent
+                  foundParentWithNonce = true
+                }
+                info[1] = parentOutcome.lastCostLevelSumComponent
+              }
+              // })
+              outcome.lastTradeNonce = nonce
+            }
           }
         }
       }
 
-      const scaledOddsDelta = tradeOutcome.lastRecordedOdds * (Math.exp(tradeAmount / b) - 1)
+      // for(let n = tradeOutcomeName === '$' ? 0 : tradeOutcomeName.length; n >= 1; n--) {
+      //     for(const elems of combinations(tradeOutcomeName, n)) {
+      //       const ancestorName = elems.join('')
+      //       const outcome = outcomesByName[ancestorName]
+      //       console.log(ancestorName)
+
+      //       outcome.lastParentsCostLevelSumComponents.forEach(info => {
+      //         const [parentName, parentLastComponent] = info
+      //         const parentOutcome = outcomesByName[parentName]
+      //         outcome.lastCostLevelSumComponent = outcome.lastCostLevelSumComponent * parentOutcome.lastCostLevelSumComponent / parentLastComponent
+      //         info[1] = parentOutcome.lastCostLevelSumComponent
+      //       })
+      //     }
+      // }
+
+      const deltaMultiplier = Math.exp(tradeAmount / b) - 1
+      const scaledOddsDelta = tradeOutcome.lastRecordedOdds * deltaMultiplier
+      const componentDelta = tradeOutcome.lastCostLevelSumComponent * deltaMultiplier
       // console.log('scaled odds delta', scaledOddsDelta)
+
       // augment
+      outcomesByName['$'].lastCostLevelSumComponent += componentDelta
+      outcomesByName['$'].lastTradeNonce = tradeNonce
       for(let n = 1; n <= tradeConditions.length; n++) {
         for(const conditionTuple of combinations(tradeConditions, n)) {
           for(const elems of product(conditionTuple)) {
@@ -292,6 +361,7 @@ export default {
             if(elems.every(elem => tradeOutcomeName.indexOf(elem) >= 0)) {
               // console.log('augmenting', outcome.name, 'from', outcome.lastRecordedOdds, 'to', (outcome.lastRecordedOdds + scaledOddsDelta) / (1 + scaledOddsDelta))
               outcome.lastRecordedOdds = (outcome.lastRecordedOdds + scaledOddsDelta) / (1 + scaledOddsDelta)
+              outcome.lastCostLevelSumComponent += componentDelta
             } else {
               // console.log('augmenting', outcome.name, 'from', outcome.lastRecordedOdds, 'to', outcome.lastRecordedOdds / (1 + scaledOddsDelta))
               outcome.lastRecordedOdds = outcome.lastRecordedOdds / (1 + scaledOddsDelta)
@@ -300,6 +370,11 @@ export default {
               const parentOutcome = outcomesByName[info[0]]
               info[1] = parentOutcome.lastRecordedOdds
             })
+            outcome.lastParentsCostLevelSumComponents.forEach(info => {
+              const parentOutcome = outcomesByName[info[0]]
+              info[1] = parentOutcome.lastCostLevelSumComponent
+            })
+            // outcome.lastTradeNonce = tradeNonce
           }
         }
       }
@@ -370,7 +445,7 @@ export default {
 
     formatQuantity(q) {
       if(Number.isFinite(q))
-        return q.toFixed(4).replace(/\.?0*$/, '')
+        return q.toFixed(6).replace(/\.?0*$/, '')
       return null
     },
 
@@ -393,8 +468,12 @@ export default {
       // }
 
       return [].concat(
-        [`LRP(${outcome.name}) = ${this.formatQuantity(outcome.lastRecordedOdds)}`],
-        outcome.lastParentsRecordedOdds.map(([name, odds]) => `LRP(${name}) = ${this.formatQuantity(odds)}`),
+        [`last trade @ ${outcome.lastTradeNonce}`],
+        [`LCLSC(${outcome.name}) = ${this.formatQuantity(outcome.lastCostLevelSumComponent)}`],
+        outcome.lastParentsCostLevelSumComponents.map(([name, component]) => `LPCLSC(${name}) = ${this.formatQuantity(component)}`),
+        [`est P(${outcome.name}) = ${this.formatQuantity(outcome.lastCostLevelSumComponent / outcomesByName['$'].lastCostLevelSumComponent)}`],
+        // [`LRP(${outcome.name}) = ${this.formatQuantity(outcome.lastRecordedOdds)}`],
+        // outcome.lastParentsRecordedOdds.map(([name, odds]) => `LRP(${name}) = ${this.formatQuantity(odds)}`),
         // [`?/?[$] = ${this.formatQuantity(outcome.lastRecordedOdds / outcomesByName['$'].lastRecordedOdds)}`],
         // outcome.name === '$' ? [] : [`prod(? for canonical path) = ${this.formatQuantity(Array.from(outcome.name).reduce(([parentName, q], newElem) => [parentName + newElem, q * outcomesByName[parentName + newElem].lastRecordedOdds], ['', outcomesByName['$'].lastRecordedOdds])[1])}`],
         // [`exp(-sum(holdings for all ancestors)/b) * multiplicity = ${Math.exp(-ancestors.reduce((acc, anc) => acc + anc.amountHeld, 0) / b) * outcome.multiplicity}`],
