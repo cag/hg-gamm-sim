@@ -298,10 +298,10 @@ export default {
 
       // normalize
       const tradeConditions = tradeConditionIndices.map(i => conditions[i])
-      for(let nonce = tradeOutcome.lastTradeNonce + 1; nonce <= tradeNonce; nonce++) {
-        outcomesByName['$'].lastTradeNonce = nonce
-        // for(let n = 1; n <= tradeConditions.length; n++) {
-        for(let n = tradeConditions.length; n >= 1; n--) {
+      // for(let nonce = tradeOutcome.lastTradeNonce; nonce < tradeNonce; nonce++) {
+        // outcomesByName['$'].lastTradeNonce = nonce
+        for(let n = 1; n <= tradeConditions.length; n++) {
+        // for(let n = tradeConditions.length; n >= 1; n--) {
           for(const conditionTuple of combinations(tradeConditions, n)) {
             for(const elems of product(conditionTuple)) {
               const outcome = outcomesByName[elems.join('')]
@@ -313,23 +313,28 @@ export default {
                 info[1] = parentOutcome.lastRecordedOdds
               })
 
-              let foundParentWithNonce = false
-              // outcome.lastParentsCostLevelSumComponents.forEach(info => {
-              for(const info of outcome.lastParentsCostLevelSumComponents) {
-                const [parentName, parentLastComponent] = info
-                const parentOutcome = outcomesByName[parentName]
-                if(!foundParentWithNonce && parentOutcome.lastTradeNonce === nonce) {
-                  outcome.lastCostLevelSumComponent = outcome.lastCostLevelSumComponent * parentOutcome.lastCostLevelSumComponent / parentLastComponent
-                  foundParentWithNonce = true
+              // if(outcome.lastTradeNonce === nonce) {
+                // let foundParentWithNonce = false
+                // outcome.lastParentsCostLevelSumComponents.forEach(info => {
+                for(const info of outcome.lastParentsCostLevelSumComponents) {
+                  const [parentName, parentLastComponent] = info
+                  const parentOutcome = outcomesByName[parentName]
+                  if(parentOutcome.lastTradeNonce > outcome.lastTradeNonce) {
+                    // if(!foundParentWithNonce) {
+                      // console.log('found parent with nonce', nonce + 1, '-', parentOutcome.name, 'vs', outcome.name, `${this.formatQuantity(outcome.lastCostLevelSumComponent)} * ${this.formatQuantity(parentOutcome.lastCostLevelSumComponent)} / ${this.formatQuantity(parentLastComponent)}`)
+                      outcome.lastCostLevelSumComponent = outcome.lastCostLevelSumComponent * parentOutcome.lastCostLevelSumComponent / parentLastComponent
+                      // foundParentWithNonce = true
+                    // }
+                    info[1] = parentOutcome.lastCostLevelSumComponent
+                  }
                 }
-                info[1] = parentOutcome.lastCostLevelSumComponent
-              }
-              // })
-              outcome.lastTradeNonce = nonce
+                // })
+                // outcome.lastTradeNonce = nonce + 1
+              // }
             }
           }
         }
-      }
+      // }
 
       // for(let n = tradeOutcomeName === '$' ? 0 : tradeOutcomeName.length; n >= 1; n--) {
       //     for(const elems of combinations(tradeOutcomeName, n)) {
@@ -374,7 +379,7 @@ export default {
               const parentOutcome = outcomesByName[info[0]]
               info[1] = parentOutcome.lastCostLevelSumComponent
             })
-            // outcome.lastTradeNonce = tradeNonce
+            outcome.lastTradeNonce = tradeNonce
           }
         }
       }
